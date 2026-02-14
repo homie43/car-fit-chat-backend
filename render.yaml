@@ -1,0 +1,110 @@
+# Render.com deployment configuration for CarFit Chat Backend
+# Documentation: https://render.com/docs/infrastructure-as-code
+
+services:
+  # PostgreSQL Database (managed by Supabase, so commented out)
+  # We'll use external Supabase PostgreSQL instead of Render's DB
+  # databases:
+  #   - name: carfit-db
+  #     databaseName: carfit_chat
+  #     plan: free
+  #     region: frankfurt
+
+  # Backend Web Service
+  - type: web
+    name: carfit-backend
+    runtime: node
+    region: frankfurt # Closest to Europe, or use 'oregon' for US
+    plan: free # Free tier: 750 hours/month, sleeps after 15min inactivity
+
+    # Build configuration
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm start
+
+    # Health check
+    healthCheckPath: /health
+
+    # Auto-deploy
+    autoDeploy: true
+
+    # Environment variables
+    envVars:
+      # Server configuration
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 10000 # Render uses this port by default
+
+      # Database (use external Supabase connection string)
+      - key: DATABASE_URL
+        sync: false # Set manually in Render dashboard
+        # Example: postgresql://postgres:[PASSWORD]@[HOST]:[PORT]/postgres
+
+      # Frontend URL (update after deploying frontend)
+      - key: CLIENT_URL
+        value: https://car-fit-chat.vercel.app
+
+      # JWT secrets (auto-generate or set manually)
+      - key: JWT_ACCESS_SECRET
+        generateValue: true # Render will auto-generate secure random value
+
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+
+      # DeepSeek AI (via OpenRouter)
+      - key: DEEPSEEK_API_KEY
+        sync: false # Set manually in dashboard (sensitive)
+
+      - key: DEEPSEEK_API_URL
+        value: https://openrouter.ai/api/v1
+
+      - key: DEEPSEEK_MODEL
+        value: deepseek/deepseek-chat
+
+      # auto.dev API
+      - key: AUTO_DEV_API_KEY
+        sync: false # Set manually or use 'mock-key' for testing
+
+      - key: AUTO_DEV_API_URL
+        value: https://api.auto.dev
+
+      # CORS (update after deploying frontend)
+      - key: CORS_ORIGINS
+        value: https://car-fit-chat.vercel.app,https://carfit-backend.onrender.com
+
+      # Rate limiting
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 900000 # 15 minutes
+
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: 100
+
+      # Logging
+      - key: LOG_LEVEL
+        value: info
+
+# Notes:
+# 1. After first deployment, run migrations manually via Render Shell:
+#    npm run prisma:migrate deploy
+#    npm run seed
+#
+# 2. Set sensitive environment variables manually in Render dashboard:
+#    - DATABASE_URL (from Supabase)
+#    - DEEPSEEK_API_KEY (from OpenRouter)
+#    - AUTO_DEV_API_KEY (or use 'mock-key')
+#
+# 3. Update CLIENT_URL and CORS_ORIGINS after deploying frontend to Vercel
+#
+# 4. Free tier limitations:
+#    - 750 hours/month runtime
+#    - Sleeps after 15 minutes of inactivity (cold start ~30-60s)
+#    - Use UptimeRobot to keep it awake: https://uptimerobot.com
+#
+# 5. To upgrade to paid tier (no sleep): $7/month Starter plan

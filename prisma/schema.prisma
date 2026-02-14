@@ -1,0 +1,246 @@
+// Prisma Schema for CarFit Chat
+// Based on design.txt architecture
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS & AUTH
+// ============================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum Language {
+  RU
+  EN
+}
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String    @unique
+  passwordHash  String
+  role          UserRole  @default(USER)
+  language      Language?
+  name          String?
+
+  // JSON структура для предпочтений пользователя
+  preferences   Json?     @db.JsonB
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  dialog        Dialog?
+  providerLogs  ProviderLog[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ============================================
+// DIALOGS & MESSAGES
+// ============================================
+
+model Dialog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid  // ONE dialog per user
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  providerLogs ProviderLog[]
+
+  @@index([userId])
+  @@index([updatedAt])
+  @@map("dialogs")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ModerationStatus {
+  OK
+  BLOCKED
+}
+
+model Message {
+  id               String           @id @default(uuid()) @db.Uuid
+  dialogId         String           @db.Uuid
+  role             MessageRole
+  content          String           @db.Text
+  moderationStatus ModerationStatus @default(OK)
+  blockedReason    String?
+
+  createdAt        DateTime         @default(now())
+
+  // Relations
+  dialog           Dialog           @relation(fields: [dialogId], references: [id], onDelete: Cascade)
+
+  @@index([dialogId, createdAt])
+  @@index([moderationStatus])
+  @@map("messages")
+}
+
+// ============================================
+// CAR CATALOG (from XML)
+// ============================================
+
+model CarBrand {
+  id     String     @id @default(uuid()) @db.Uuid
+  code   String?    @unique  // External code from XML (e.g., "THAIRUNG")
+  name   String                 // Display name (e.g., "Thairung")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  models    CarModel[]
+
+  @@index([name])
+  @@map("car_brands")
+}
+
+model CarModel {
+  id       String   @id @default(uuid()) @db.Uuid
+  brandId  String   @db.Uuid
+  name     String             // Model name (e.g., "TRANSFORMER")
+  slug     String?            // URL-friendly slug (optional)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  brand    CarBrand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  variants CarVariant[]
+
+  @@unique([brandId, name])  // Prevent duplicates
+  @@index([brandId])
+  @@index([name])
+  @@map("car_models")
+}
+
+model CarVariant {
+  id          String    @id @default(uuid()) @db.Uuid
+  modelId     String    @db.Uuid
+  name        String    @db.Text  // Full variant name (e.g., "2.8d AT (177 л.с.) 4WD")
+  bodyType    String?
+  yearFrom    Int?
+  yearTo      Int?      // null = current
+  powerText   String?   // Parsed from name (e.g., "177 л.с.")
+  kppText     String?   // Parsed from name (e.g., "AT")
+
+  // All other XML fields stored as JSON
+  meta        Json?     @db.JsonB
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  model                 CarModel                    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  complectations        CarVariantComplectation[]
+
+  @@unique([modelId, name, yearFrom, yearTo])  // Prevent duplicates
+  @@index([modelId])
+  @@index([yearFrom, yearTo])
+  @@map("car_variants")
+}
+
+model CarComplectation {
+  id     String  @id @default(uuid()) @db.Uuid
+  extId  String  @unique  // External ID from XML (e.g., "20078505")
+  name   String            // Complectation name (e.g., "Titanium", "Sport")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  variants  CarVariantComplectation[]
+
+  @@index([name])
+  @@map("car_complectations")
+}
+
+// Many-to-many relationship between variants and complectations
+model CarVariantComplectation {
+  variantId       String @db.Uuid
+  complectationId String @db.Uuid
+
+  variant         CarVariant       @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  complectation   CarComplectation @relation(fields: [complectationId], references: [id], onDelete: Cascade)
+
+  @@id([variantId, complectationId])
+  @@index([variantId])
+  @@index([complectationId])
+  @@map("car_variant_complectations")
+}
+
+// ============================================
+// TCO CACHE (auto.dev integration)
+// ============================================
+
+model TcoCache {
+  id         String   @id @default(uuid()) @db.Uuid
+  vin        String   @unique  // 17-character VIN
+  tcoValue   Decimal  @db.Decimal(12, 2)  // Single aggregated TCO value
+  currency   String
+  raw        Json     @db.JsonB  // Full TCO API response
+  vinDecoded Json?    @db.JsonB  // VIN decode result
+
+  fetchedAt  DateTime @default(now())
+  expiresAt  DateTime  // fetchedAt + 30 days
+
+  @@index([vin])
+  @@index([expiresAt])
+  @@map("tco_cache")
+}
+
+// ============================================
+// PROVIDER LOGS (LLM, AUTO_DEV, MODERATION)
+// ============================================
+
+enum ProviderLogKind {
+  LLM
+  AUTO_DEV
+  MODERATION
+}
+
+model ProviderLog {
+  id        String           @id @default(uuid()) @db.Uuid
+  kind      ProviderLogKind
+  userId    String?          @db.Uuid
+  dialogId  String?          @db.Uuid
+
+  // Raw request/response (with sensitive data masked)
+  request   Json?            @db.JsonB
+  response  Json?            @db.JsonB
+
+  status    String?          // HTTP status or error code
+  latencyMs Int?             // Request latency in milliseconds
+
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  dialog    Dialog? @relation(fields: [dialogId], references: [id], onDelete: SetNull)
+
+  @@index([kind, createdAt])
+  @@index([userId, createdAt])
+  @@index([dialogId, createdAt])
+  @@map("provider_logs")
+}
