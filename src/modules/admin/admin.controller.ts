@@ -37,7 +37,7 @@ export class AdminController {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: error.errors[0].message,
+          message: error.issues[0].message,
         });
         return;
       }
@@ -56,7 +56,7 @@ export class AdminController {
    */
   async resetUserPassword(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
       const { newPassword } = resetPasswordSchema.parse(req.body);
 
       const success = await adminService.resetUserPassword(id, newPassword);
@@ -76,7 +76,7 @@ export class AdminController {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: error.errors[0].message,
+          message: error.issues[0].message,
         });
         return;
       }
@@ -104,7 +104,7 @@ export class AdminController {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: error.errors[0].message,
+          message: error.issues[0].message,
         });
         return;
       }
@@ -123,7 +123,7 @@ export class AdminController {
    */
   async getDialogMessages(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
 
       const dialog = await adminService.getDialogMessages(id);
 
@@ -151,7 +151,7 @@ export class AdminController {
    */
   async deleteDialog(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
 
       const success = await adminService.deleteDialog(id);
 
@@ -181,8 +181,8 @@ export class AdminController {
    */
   async exportDialog(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      const format = (req.query.format as string) || 'json';
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
+      const format = (Array.isArray(req.query.format) ? req.query.format[0] : req.query.format) || 'json';
 
       if (format === 'csv') {
         const csv = await adminService.exportDialogCSV(id);
@@ -237,7 +237,7 @@ export class AdminController {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: error.errors[0].message,
+          message: error.issues[0].message,
         });
         return;
       }
@@ -256,7 +256,7 @@ export class AdminController {
    */
   async getLogDetails(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
 
       const log = await adminService.getLogDetails(id);
 

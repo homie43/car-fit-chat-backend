@@ -36,11 +36,11 @@ export class TCOController {
       res.status(200).json(tcoData);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        logger.warn({ error: error.errors }, 'Invalid TCO request');
+        logger.warn({ error: error.issues }, 'Invalid TCO request');
         res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: error.errors[0].message,
-          details: error.errors,
+          message: error.issues[0].message,
+          details: error.issues,
         });
         return;
       }
@@ -78,11 +78,11 @@ export class TCOController {
       res.status(200).json(vinData);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        logger.warn({ error: error.errors }, 'Invalid VIN decode request');
+        logger.warn({ error: error.issues }, 'Invalid VIN decode request');
         res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: error.errors[0].message,
-          details: error.errors,
+          message: error.issues[0].message,
+          details: error.issues,
         });
         return;
       }

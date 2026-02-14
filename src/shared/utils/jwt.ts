@@ -15,13 +15,13 @@ export interface JwtPayload {
 export function generateAccessToken(payload: JwtPayload): string {
   return jwt.sign(payload, ACCESS_SECRET, {
     expiresIn: ACCESS_EXPIRES_IN,
-  });
+  } as jwt.SignOptions);
 }
 
 export function generateRefreshToken(payload: JwtPayload): string {
   return jwt.sign(payload, REFRESH_SECRET, {
     expiresIn: REFRESH_EXPIRES_IN,
-  });
+  } as jwt.SignOptions);
 }
 
 export function verifyAccessToken(token: string): JwtPayload {

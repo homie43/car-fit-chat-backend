@@ -69,7 +69,7 @@ export class CarsController {
 
   async getVariantById(req: Request, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
+      const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id)!;
 
       const variant = await carsService.getVariantById(id);
 
