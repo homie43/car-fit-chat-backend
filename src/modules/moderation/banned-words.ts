@@ -201,18 +201,19 @@ export function containsBannedWords(text: string): {
   for (const word of BANNED_WORDS) {
     const normalizedWord = word.toLowerCase();
 
-    // For single words: use word boundary regex
+    // For single words: check as whole word (not substring)
+    // NOTE: \b doesn't work with Cyrillic, so we use manual word matching
     if (!normalizedWord.includes(' ')) {
-      const regex = new RegExp(`\\b${escapeRegex(normalizedWord)}\\b`, 'i');
-      if (regex.test(normalizedText)) {
+      // Split text into words and check for exact match
+      const words = normalizedText.split(/[\s,.!?;:()]+/);
+      if (words.includes(normalizedWord)) {
         found.push(word);
-        continue;
       }
-    }
-
-    // For phrases: check if phrase exists in normalized text
-    if (normalizedText.includes(normalizedWord)) {
-      found.push(word);
+    } else {
+      // For phrases: check if phrase exists in normalized text
+      if (normalizedText.includes(normalizedWord)) {
+        found.push(word);
+      }
     }
   }
 
