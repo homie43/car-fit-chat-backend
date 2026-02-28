@@ -92,3 +92,23 @@ export interface DeepSeekStreamChunk {
     finish_reason: string | null;
   }>;
 }
+
+// ============================================
+// RAG (Retrieval-Augmented Generation) TYPES
+// ============================================
+
+/**
+ * Car search result formatted for RAG context
+ * Contains only essential information to include in LLM prompt
+ */
+export interface SearchResultForContext {
+  brand: string;
+  model: string;
+  variant: string;
+  description: string | null;
+  yearFrom: number | null;
+  yearTo: number | null;
+  powerText: string | null;
+  kppText: string | null;
+  bodyType: string | null;
+}

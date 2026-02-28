@@ -9,6 +9,7 @@ import {
   DeepSeekMessage,
   DeepSeekChatRequest,
   DeepSeekStreamChunk,
+  SearchResultForContext,
 } from './ai.types';
 import { getSystemPrompt } from './ai.prompts';
 
@@ -46,6 +47,47 @@ export class AIService {
       const language = user?.language || 'RU';
       const systemPrompt = getSystemPrompt(language);
 
+      // === RAG: Extract current preferences and search database BEFORE calling LLM ===
+      const currentPreferences = await this.extractCurrentPreferences(
+        request.userId,
+        request.userMessage
+      );
+
+      let searchResults: SearchResultForContext[] = [];
+      let ragContext = '';
+
+      // If we have enough preferences, search database
+      if (this.hasEnoughPreferencesForSearch(currentPreferences)) {
+        logger.info(
+          { userId: request.userId, preferences: currentPreferences },
+          'Searching database for RAG context'
+        );
+
+        searchResults = await carsService.searchCarsForRAG({
+          marka: currentPreferences.marka,
+          model: currentPreferences.model,
+          yearFrom: currentPreferences.yearFrom,
+          yearTo: currentPreferences.yearTo,
+          power: currentPreferences.power,
+          kpp: currentPreferences.kpp,
+          bodyType: currentPreferences.bodyType,
+          limit: 5, // Limit to top 5 results for context
+        });
+
+        if (searchResults.length > 0) {
+          ragContext = this.formatSearchResultsForContext(searchResults);
+          logger.info(
+            { userId: request.userId, resultsCount: searchResults.length },
+            'RAG context prepared'
+          );
+        } else {
+          logger.info(
+            { userId: request.userId },
+            'No cars found in database for current preferences'
+          );
+        }
+      }
+
       // Build messages array for DeepSeek API
       const messages: DeepSeekMessage[] = [
         {
@@ -53,6 +95,14 @@ export class AIService {
           content: systemPrompt,
         },
       ];
+
+      // === RAG: Add search results as context BEFORE message history ===
+      if (ragContext) {
+        messages.push({
+          role: 'system',
+          content: ragContext,
+        });
+      }
 
       // Add message history (limit to last 20 messages to avoid token limit)
       const recentHistory = request.messageHistory.slice(-20);
@@ -196,16 +246,6 @@ export class AIService {
         );
       }
 
-      // Search for cars if enough preferences are available
-      let searchResults: any[] | undefined;
-      if (this.hasEnoughPreferences(extractedPreferences)) {
-        searchResults = await this.searchCars(extractedPreferences);
-        logger.info(
-          { userId: request.userId, resultsCount: searchResults.length },
-          'Car search performed'
-        );
-      }
-
       // Log provider request/response
       const duration = Date.now() - startTime;
       await this.logProviderRequest(
@@ -286,47 +326,6 @@ export class AIService {
   }
 
   /**
-   * Check if user has enough preferences to search for cars
-   */
-  private hasEnoughPreferences(preferences: UserPreferences): boolean {
-    let filledFields = 0;
-
-    const keyFields = ['marka', 'model', 'kpp', 'yearFrom'] as const;
-
-    for (const field of keyFields) {
-      if (preferences[field]) {
-        filledFields++;
-      }
-    }
-
-    return filledFields >= 3;
-  }
-
-  /**
-   * Search for cars based on preferences
-   */
-  private async searchCars(
-    preferences: UserPreferences
-  ): Promise<any[]> {
-    try {
-      const searchResults = await carsService.searchCars({
-        marka: preferences.marka,
-        model: preferences.model,
-        yearFrom: preferences.yearFrom,
-        yearTo: preferences.yearTo,
-        power: preferences.power,
-        kpp: preferences.kpp,
-        bodyType: preferences.bodyType,
-      });
-
-      return searchResults;
-    } catch (error) {
-      logger.error({ error, preferences }, 'Car search error');
-      return [];
-    }
-  }
-
-  /**
    * Log provider request/response to database
    */
   private async logProviderRequest(
@@ -359,6 +358,83 @@ export class AIService {
   validateVIN(vin: string): boolean {
     const vinRegex = /^[A-HJ-NPR-Z0-9]{17}$/i;
     return vinRegex.test(vin);
+  }
+
+  /**
+   * Extract preferences from user's saved preferences and current message
+   * Combines stored preferences with any new info from current message
+   */
+  private async extractCurrentPreferences(
+    userId: string,
+    currentMessage: string
+  ): Promise<UserPreferences> {
+    // Get user's saved preferences
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferences: true },
+    });
+
+    const savedPreferences = (user?.preferences as UserPreferences) || {};
+
+    // For MVP: just use saved preferences
+    // In future, could use LLM to extract preferences from currentMessage
+    return savedPreferences;
+  }
+
+  /**
+   * Format search results for LLM context
+   * Creates a structured text representation of cars from database
+   */
+  private formatSearchResultsForContext(results: SearchResultForContext[]): string {
+    if (results.length === 0) {
+      return '';
+    }
+
+    let context = 'РЕЗУЛЬТАТЫ ПОИСКА ПО БАЗЕ ДАННЫХ:\n\n';
+    context += `Найдено автомобилей: ${results.length}\n\n`;
+
+    results.forEach((car, index) => {
+      const years = car.yearFrom && car.yearTo
+        ? `${car.yearFrom}-${car.yearTo}`
+        : car.yearFrom
+        ? `${car.yearFrom}+`
+        : 'н/д';
+
+      context += `${index + 1}. ${car.brand} ${car.model}\n`;
+      context += `   Вариант: ${car.variant}\n`;
+      context += `   Годы выпуска: ${years}\n`;
+      context += `   Тип кузова: ${car.bodyType || 'н/д'}\n`;
+      context += `   Мощность: ${car.powerText || 'н/д'}\n`;
+      context += `   КПП: ${car.kppText || 'н/д'}\n`;
+      if (car.description) {
+        context += `   Описание: ${car.description}\n`;
+      }
+      context += '\n';
+    });
+
+    context += '---\n';
+    context += 'ВАЖНО: Используй ТОЛЬКО эти автомобили для рекомендаций. Не придумывай другие модели.\n';
+
+    return context;
+  }
+
+  /**
+   * Check if we have enough preferences to search database
+   * Need at least 2 key fields filled
+   */
+  private hasEnoughPreferencesForSearch(preferences: UserPreferences): boolean {
+    let filledFields = 0;
+
+    const keyFields = ['marka', 'model', 'kpp', 'yearFrom', 'bodyType'] as const;
+
+    for (const field of keyFields) {
+      if (preferences[field]) {
+        filledFields++;
+      }
+    }
+
+    // Need at least 2 fields to search
+    return filledFields >= 2;
   }
 }
 

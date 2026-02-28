@@ -146,6 +146,9 @@ model CarVariant {
   powerText   String?   // Parsed from name (e.g., "177 л.с.")
   kppText     String?   // Parsed from name (e.g., "AT")
 
+  // AI-generated description with interesting facts
+  description String?   @db.Text
+
   // All other XML fields stored as JSON
   meta        Json?     @db.JsonB
 
