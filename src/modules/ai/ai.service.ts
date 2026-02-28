@@ -98,12 +98,13 @@ export class AIService {
 
       // === RAG: Add search results as context BEFORE message history ===
       if (ragContext) {
+        // Case 1: Search was performed and found results
         messages.push({
           role: 'system',
           content: ragContext,
         });
       } else if (this.hasEnoughPreferencesForSearch(currentPreferences)) {
-        // If we searched but found nothing, explicitly tell LLM
+        // Case 2: Search was performed but found ZERO results
         messages.push({
           role: 'system',
           content:
@@ -112,6 +113,17 @@ export class AIService {
             '⚠️ В нашей базе НЕТ автомобилей, соответствующих запросу.\n' +
             'Ты МОЖЕШЬ поделиться общедоступными знаниями, но ОБЯЗАТЕЛЬНО сначала скажи:\n' +
             '"В нашей базе данных пока нет информации по вашему запросу. Но я могу поделиться общими знаниями..."',
+        });
+      } else {
+        // Case 3: Search was NOT performed (insufficient preferences)
+        messages.push({
+          role: 'system',
+          content:
+            'СТАТУС ПОИСКА ПО БАЗЕ ДАННЫХ:\n\n' +
+            '⚠️ Поиск НЕ выполнялся (недостаточно данных о предпочтениях пользователя).\n\n' +
+            'Ты ОБЯЗАН предупредить пользователя:\n' +
+            '"Я отвечаю на основе общих знаний, так как пока нет достаточной информации для точного поиска в базе. ' +
+            'Уточните, пожалуйста: марку, модель, бюджет или год выпуска автомобиля."',
         });
       }
 
