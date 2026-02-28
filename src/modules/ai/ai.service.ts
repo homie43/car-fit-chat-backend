@@ -157,7 +157,8 @@ export class AIService {
 
       // Process streaming response
       let fullResponse = '';
-      let streamBuffer = ''; // Buffer for filtering [PREFERENCES] block
+      let streamBuffer = ''; // Buffer for filtering [PREFERENCES] block and moderation
+      let outputBuffer = ''; // Buffer to check for rejection BEFORE streaming
       let insidePreferencesBlock = false;
       let rejectionDetected = false; // Flag for DeepSeek content moderation rejection
       const body = response.body;
@@ -191,13 +192,14 @@ export class AIService {
               if (content) {
                 fullResponse += content;
                 streamBuffer += content;
+                outputBuffer += content;
 
-                // Check for DeepSeek content moderation rejection
-                // If detected, stop streaming immediately and discard all previous content
+                // Check for DeepSeek content moderation rejection EARLY
+                // Keep buffering more to detect rejection before streaming
                 if (
-                  streamBuffer.includes('Извините, не могу ответить') ||
-                  streamBuffer.includes('Sorry, I cannot') ||
-                  streamBuffer.includes('Попробуйте переформулировать')
+                  outputBuffer.includes('Извините, не могу ответить') ||
+                  outputBuffer.includes('Sorry, I cannot') ||
+                  outputBuffer.includes('Попробуйте переформулировать')
                 ) {
                   rejectionDetected = true;
                   logger.warn(
@@ -221,20 +223,24 @@ export class AIService {
                   // Stream the content before and after the block
                   if (beforeBlock) {
                     yield beforeBlock;
+                    outputBuffer = ''; // Reset output buffer after yielding
                   }
                   if (afterBlock) {
                     yield afterBlock;
+                    outputBuffer = ''; // Reset output buffer after yielding
                   }
 
                   streamBuffer = '';
                   insidePreferencesBlock = false;
                 } else if (!insidePreferencesBlock) {
-                  // Only stream if we're not inside PREFERENCES block
-                  // Keep last 20 chars in buffer to handle block start across chunks
-                  const safeLength = Math.max(0, streamBuffer.length - 20);
+                  // Buffer at least 500 chars before streaming to catch rejection early
+                  // DeepSeek often adds rejection message at the end, so we need larger buffer
+                  const REJECTION_BUFFER_SIZE = 500;
+                  const safeLength = Math.max(0, outputBuffer.length - REJECTION_BUFFER_SIZE);
                   if (safeLength > 0) {
-                    const safeContent = streamBuffer.substring(0, safeLength);
+                    const safeContent = outputBuffer.substring(0, safeLength);
                     yield safeContent;
+                    outputBuffer = outputBuffer.substring(safeLength);
                     streamBuffer = streamBuffer.substring(safeLength);
                   }
                 }
