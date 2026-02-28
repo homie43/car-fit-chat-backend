@@ -102,6 +102,17 @@ export class AIService {
           role: 'system',
           content: ragContext,
         });
+      } else if (this.hasEnoughPreferencesForSearch(currentPreferences)) {
+        // If we searched but found nothing, explicitly tell LLM
+        messages.push({
+          role: 'system',
+          content:
+            'РЕЗУЛЬТАТЫ ПОИСКА ПО БАЗЕ ДАННЫХ:\n\n' +
+            'Найдено автомобилей: 0\n\n' +
+            '⚠️ В нашей базе НЕТ автомобилей, соответствующих запросу.\n' +
+            'Ты МОЖЕШЬ поделиться общедоступными знаниями, но ОБЯЗАТЕЛЬНО сначала скажи:\n' +
+            '"В нашей базе данных пока нет информации по вашему запросу. Но я могу поделиться общими знаниями..."',
+        });
       }
 
       // Add message history (limit to last 20 messages to avoid token limit)
@@ -148,6 +159,7 @@ export class AIService {
       let fullResponse = '';
       let streamBuffer = ''; // Buffer for filtering [PREFERENCES] block
       let insidePreferencesBlock = false;
+      let rejectionDetected = false; // Flag for DeepSeek content moderation rejection
       const body = response.body;
 
       if (!body) {
@@ -179,6 +191,21 @@ export class AIService {
               if (content) {
                 fullResponse += content;
                 streamBuffer += content;
+
+                // Check for DeepSeek content moderation rejection
+                // If detected, stop streaming immediately and discard all previous content
+                if (
+                  streamBuffer.includes('Извините, не могу ответить') ||
+                  streamBuffer.includes('Sorry, I cannot') ||
+                  streamBuffer.includes('Попробуйте переформулировать')
+                ) {
+                  rejectionDetected = true;
+                  logger.warn(
+                    { userId: request.userId },
+                    'DeepSeek content moderation detected - discarding response'
+                  );
+                  break; // Stop processing stream
+                }
 
                 // Check if we're entering or inside PREFERENCES block
                 if (streamBuffer.includes('[PREFERENCES]')) {
@@ -219,12 +246,20 @@ export class AIService {
         }
       }
 
-      // Flush remaining buffer (except PREFERENCES block)
-      if (streamBuffer && !insidePreferencesBlock) {
-        // Remove any remaining PREFERENCES block
-        const cleaned = streamBuffer.replace(/\[PREFERENCES\][\s\S]*?\[\/PREFERENCES\]/g, '');
-        if (cleaned) {
-          yield cleaned;
+      // If DeepSeek rejected the content, yield standard rejection message
+      if (rejectionDetected) {
+        const rejectionMessage =
+          'Извините, я не могу ответить на этот вопрос. Попробуйте переформулировать или задать вопрос о гражданских автомобилях.';
+        yield rejectionMessage;
+        fullResponse = rejectionMessage; // Override full response for logging
+      } else {
+        // Flush remaining buffer (except PREFERENCES block)
+        if (streamBuffer && !insidePreferencesBlock) {
+          // Remove any remaining PREFERENCES block
+          const cleaned = streamBuffer.replace(/\[PREFERENCES\][\s\S]*?\[\/PREFERENCES\]/g, '');
+          if (cleaned) {
+            yield cleaned;
+          }
         }
       }
 
