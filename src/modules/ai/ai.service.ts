@@ -12,6 +12,8 @@ import {
   SearchResultForContext,
 } from './ai.types';
 import { getSystemPrompt } from './ai.prompts';
+import { parseMessageForPreferences, mergePreferences } from './message-parser';
+import { normalizeBrandName } from './brand-aliases';
 
 export class AIService {
   private apiUrl: string;
@@ -71,7 +73,7 @@ export class AIService {
           power: currentPreferences.power,
           kpp: currentPreferences.kpp,
           bodyType: currentPreferences.bodyType,
-          limit: 5, // Limit to top 5 results for context
+          limit: 10, // Top 10 results for context (descriptions prioritized)
         });
 
         if (searchResults.length > 0) {
@@ -110,20 +112,20 @@ export class AIService {
           content:
             'РЕЗУЛЬТАТЫ ПОИСКА ПО БАЗЕ ДАННЫХ:\n\n' +
             'Найдено автомобилей: 0\n\n' +
-            '⚠️ В нашей базе НЕТ автомобилей, соответствующих запросу.\n' +
-            'Ты МОЖЕШЬ поделиться общедоступными знаниями, но ОБЯЗАТЕЛЬНО сначала скажи:\n' +
-            '"В нашей базе данных пока нет информации по вашему запросу. Но я могу поделиться общими знаниями..."',
+            'В нашей базе нет автомобилей по этому запросу.\n' +
+            'Используй свои общие знания, чтобы помочь пользователю.\n' +
+            'Кратко упомяни, что в базе пока нет подходящих вариантов, но поделись полезной информацией.\n' +
+            'Задай уточняющие вопросы, чтобы скорректировать поиск.',
         });
       } else {
         // Case 3: Search was NOT performed (insufficient preferences)
         messages.push({
           role: 'system',
           content:
-            'СТАТУС ПОИСКА ПО БАЗЕ ДАННЫХ:\n\n' +
-            '⚠️ Поиск НЕ выполнялся (недостаточно данных о предпочтениях пользователя).\n\n' +
-            'Ты ОБЯЗАН предупредить пользователя:\n' +
-            '"Я отвечаю на основе общих знаний, так как пока нет достаточной информации для точного поиска в базе. ' +
-            'Уточните, пожалуйста: марку, модель, бюджет или год выпуска автомобиля."',
+            'СТАТУС ПОИСКА: поиск по базе не выполнялся (недостаточно конкретных параметров).\n\n' +
+            'Отвечай на основе своих знаний — помоги пользователю, расскажи полезную информацию.\n' +
+            'НЕ НАДО извиняться или говорить "я не могу" — просто помогай.\n' +
+            'В конце ответа мягко уточни предпочтения (марка, тип кузова, бюджет, год), чтобы подобрать варианты из базы.',
         });
       }
 
@@ -284,18 +286,25 @@ export class AIService {
       // Extract preferences from response
       const extractedPreferences = this.extractPreferences(fullResponse);
 
-      // Update user preferences in database
+      // Update user preferences in database (MERGE, not replace)
       if (Object.keys(extractedPreferences).length > 0) {
+        const currentUser = await prisma.user.findUnique({
+          where: { id: request.userId },
+          select: { preferences: true },
+        });
+        const currentSaved = (currentUser?.preferences as UserPreferences) || {};
+        const mergedPreferences = mergePreferences(currentSaved, extractedPreferences);
+
         await prisma.user.update({
           where: { id: request.userId },
           data: {
-            preferences: extractedPreferences as any,
+            preferences: mergedPreferences as any,
           },
         });
 
         logger.info(
-          { userId: request.userId, preferences: extractedPreferences },
-          'User preferences updated'
+          { userId: request.userId, preferences: mergedPreferences },
+          'User preferences merged and updated'
         );
       }
 
@@ -414,8 +423,9 @@ export class AIService {
   }
 
   /**
-   * Extract preferences from user's saved preferences and current message
-   * Combines stored preferences with any new info from current message
+   * Extract preferences from user's saved preferences and current message.
+   * Parses the current message for brand/bodyType/year/kpp/budget,
+   * then merges with saved preferences (message takes priority).
    */
   private async extractCurrentPreferences(
     userId: string,
@@ -429,9 +439,16 @@ export class AIService {
 
     const savedPreferences = (user?.preferences as UserPreferences) || {};
 
-    // For MVP: just use saved preferences
-    // In future, could use LLM to extract preferences from currentMessage
-    return savedPreferences;
+    // Parse current message for preferences (solves one-message delay)
+    const messagePreferences = parseMessageForPreferences(currentMessage);
+
+    // Normalize brand name (Cyrillic -> Latin)
+    if (messagePreferences.marka) {
+      messagePreferences.marka = normalizeBrandName(messagePreferences.marka);
+    }
+
+    // Merge: message preferences take priority over saved ones
+    return mergePreferences(savedPreferences, messagePreferences);
   }
 
   /**
@@ -473,21 +490,18 @@ export class AIService {
 
   /**
    * Check if we have enough preferences to search database
-   * Need at least 2 key fields filled
+   * Need at least 1 key field filled (brand alone is enough to show results)
    */
   private hasEnoughPreferencesForSearch(preferences: UserPreferences): boolean {
-    let filledFields = 0;
-
     const keyFields = ['marka', 'model', 'kpp', 'yearFrom', 'bodyType'] as const;
 
     for (const field of keyFields) {
       if (preferences[field]) {
-        filledFields++;
+        return true;
       }
     }
 
-    // Need at least 2 fields to search
-    return filledFields >= 2;
+    return false;
   }
 }
 

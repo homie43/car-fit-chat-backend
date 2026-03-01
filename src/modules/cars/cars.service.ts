@@ -1,6 +1,28 @@
 import { prisma } from '@/shared/utils/prisma';
 import { logger } from '@/shared/utils/logger';
 import type { SearchResultForContext } from '@/modules/ai/ai.types';
+import { normalizeBrandName } from '@/modules/ai/brand-aliases';
+
+/**
+ * Map English bodyType values (from LLM prompts) to Russian DB values.
+ * DB stores: "Седан", "Внедорожник 5 дв.", "Хэтчбек 5 дв.", etc.
+ * Search uses `contains` + insensitive, so Russian substrings match.
+ */
+const BODY_TYPE_EN_TO_DB: Record<string, string> = {
+  sedan: 'Седан',
+  hatchback: 'Хэтчбек',
+  suv: 'Внедорожник',
+  coupe: 'Купе',
+  wagon: 'Универсал',
+  minivan: 'Минивэн',
+  pickup: 'Пикап',
+  cabriolet: 'Кабриолет',
+  liftback: 'Лифтбек',
+};
+
+function normalizeBodyType(bodyType: string): string {
+  return BODY_TYPE_EN_TO_DB[bodyType.toLowerCase()] || bodyType;
+}
 
 export interface SearchCarsParams {
   marka?: string; // brand name or code
@@ -267,19 +289,19 @@ export class CarsService {
 
     logger.debug({ params }, 'Searching cars for RAG');
 
-    // Build where clause
-    const where: any = {
-      // IMPORTANT: Only include cars WITH descriptions
-      description: { not: null },
-    };
+    // Normalize brand name (Cyrillic -> Latin)
+    const normalizedMarka = marka ? normalizeBrandName(marka) : undefined;
+
+    // Build where clause — no description filter, structured data is enough for RAG
+    const where: any = {};
 
     // Filter by brand (name or code)
-    if (marka) {
+    if (normalizedMarka) {
       where.model = {
         brand: {
           OR: [
-            { name: { contains: marka, mode: 'insensitive' } },
-            { code: { contains: marka, mode: 'insensitive' } },
+            { name: { contains: normalizedMarka, mode: 'insensitive' } },
+            { code: { contains: normalizedMarka, mode: 'insensitive' } },
           ],
         },
       };
@@ -320,16 +342,18 @@ export class CarsService {
       where.kppText = { contains: kpp, mode: 'insensitive' };
     }
 
-    // Filter by body type
+    // Filter by body type (normalize English -> Russian DB values)
     if (bodyType) {
-      where.bodyType = { contains: bodyType, mode: 'insensitive' };
+      const normalizedBodyType = normalizeBodyType(bodyType);
+      where.bodyType = { contains: normalizedBodyType, mode: 'insensitive' };
     }
 
-    // Execute query
+    // Execute query — fetch extra results so we can prioritize those with descriptions
+    const fetchLimit = limit * 2;
     const variants = await prisma.carVariant.findMany({
       where,
       orderBy: [{ model: { brand: { name: 'asc' } } }, { model: { name: 'asc' } }],
-      take: limit,
+      take: fetchLimit,
       skip: offset,
       select: {
         name: true,
@@ -364,6 +388,16 @@ export class CarsService {
       kppText: variant.kppText,
       bodyType: variant.bodyType,
     }));
+
+    // Prioritize variants WITH descriptions (richer info for LLM context)
+    results.sort((a, b) => {
+      const aHas = a.description ? 0 : 1;
+      const bHas = b.description ? 0 : 1;
+      return aHas - bHas;
+    });
+
+    // Trim to requested limit
+    results.splice(limit);
 
     logger.debug({ count: results.length }, 'RAG search results');
 
