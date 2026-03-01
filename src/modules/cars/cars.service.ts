@@ -32,6 +32,7 @@ export interface SearchCarsParams {
   power?: string; // e.g., "177 л.с."
   kpp?: string; // e.g., "AT", "MT"
   bodyType?: string;
+  descriptionKeywords?: string[]; // keywords to search in description text
   limit?: number;
   offset?: number;
 }
@@ -283,6 +284,7 @@ export class CarsService {
       power,
       kpp,
       bodyType,
+      descriptionKeywords,
       limit = 10, // Default limit for RAG context
       offset = 0,
     } = params;
@@ -292,7 +294,7 @@ export class CarsService {
     // Normalize brand name (Cyrillic -> Latin)
     const normalizedMarka = marka ? normalizeBrandName(marka) : undefined;
 
-    // Build where clause — no description filter, structured data is enough for RAG
+    // Build structural where clause
     const where: any = {};
 
     // Filter by brand (name or code)
@@ -348,36 +350,34 @@ export class CarsService {
       where.bodyType = { contains: normalizedBodyType, mode: 'insensitive' };
     }
 
-    // Execute query — fetch extra results so we can prioritize those with descriptions
-    const fetchLimit = limit * 2;
-    const variants = await prisma.carVariant.findMany({
-      where,
-      orderBy: [{ model: { brand: { name: 'asc' } } }, { model: { name: 'asc' } }],
-      take: fetchLimit,
-      skip: offset,
-      select: {
-        name: true,
-        bodyType: true,
-        yearFrom: true,
-        yearTo: true,
-        powerText: true,
-        kppText: true,
-        description: true,
-        model: {
-          select: {
-            name: true,
-            brand: {
-              select: {
-                name: true,
-              },
+    const selectFields = {
+      name: true,
+      bodyType: true,
+      yearFrom: true,
+      yearTo: true,
+      powerText: true,
+      kppText: true,
+      description: true,
+      model: {
+        select: {
+          name: true,
+          brand: {
+            select: {
+              name: true,
             },
           },
         },
       },
-    });
+      complectations: {
+        select: {
+          complectation: {
+            select: { name: true },
+          },
+        },
+      },
+    };
 
-    // Transform to SearchResultForContext format
-    const results: SearchResultForContext[] = variants.map((variant) => ({
+    const toResult = (variant: any): SearchResultForContext => ({
       brand: variant.model.brand.name,
       model: variant.model.name,
       variant: variant.name,
@@ -387,17 +387,88 @@ export class CarsService {
       powerText: variant.powerText,
       kppText: variant.kppText,
       bodyType: variant.bodyType,
-    }));
+      complectations: variant.complectations?.length
+        ? variant.complectations.map((c: any) => c.complectation.name)
+        : undefined,
+    });
 
-    // Prioritize variants WITH descriptions (richer info for LLM context)
-    results.sort((a, b) => {
+    // === Two-pass search ===
+    // Pass 1: Description keyword search (if keywords provided)
+    // Finds variants where description contains any of the keywords
+    let keywordResults: SearchResultForContext[] = [];
+
+    if (descriptionKeywords && descriptionKeywords.length > 0) {
+      const keywordWhere = {
+        ...JSON.parse(JSON.stringify(where)), // deep clone structural filters
+        AND: [
+          ...(where.AND || []),
+          {
+            description: { not: null },
+          },
+          {
+            OR: descriptionKeywords.map((kw) => ({
+              description: { contains: kw, mode: 'insensitive' },
+            })),
+          },
+        ],
+      };
+
+      const keywordVariants = await prisma.carVariant.findMany({
+        where: keywordWhere,
+        orderBy: [{ model: { brand: { name: 'asc' } } }, { model: { name: 'asc' } }],
+        take: limit,
+        skip: offset,
+        select: selectFields,
+      });
+
+      keywordResults = keywordVariants.map(toResult);
+      logger.debug(
+        { count: keywordResults.length, keywords: descriptionKeywords },
+        'RAG description keyword search results',
+      );
+    }
+
+    // Pass 2: Structural search (existing behavior)
+    const fetchLimit = limit * 2;
+    const variants = await prisma.carVariant.findMany({
+      where,
+      orderBy: [{ model: { brand: { name: 'asc' } } }, { model: { name: 'asc' } }],
+      take: fetchLimit,
+      skip: offset,
+      select: selectFields,
+    });
+
+    let structuralResults: SearchResultForContext[] = variants.map(toResult);
+
+    // Prioritize variants WITH descriptions
+    structuralResults.sort((a, b) => {
       const aHas = a.description ? 0 : 1;
       const bHas = b.description ? 0 : 1;
       return aHas - bHas;
     });
 
-    // Trim to requested limit
-    results.splice(limit);
+    // === Merge: keyword results first, then unique structural results ===
+    const seen = new Set<string>();
+    const results: SearchResultForContext[] = [];
+
+    // Add keyword-matched results first (most relevant)
+    for (const r of keywordResults) {
+      const key = `${r.brand}|${r.model}|${r.variant}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(r);
+      }
+    }
+
+    // Fill remaining slots with structural results
+    for (const r of structuralResults) {
+      if (results.length >= limit) break;
+      const key = `${r.brand}|${r.model}|${r.variant}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push(r);
+      }
+    }
 
     logger.debug({ count: results.length }, 'RAG search results');
 

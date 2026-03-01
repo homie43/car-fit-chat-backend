@@ -12,7 +12,7 @@ import {
   SearchResultForContext,
 } from './ai.types';
 import { getSystemPrompt } from './ai.prompts';
-import { parseMessageForPreferences, mergePreferences } from './message-parser';
+import { parseMessageForPreferences, mergePreferences, extractDescriptionKeywords } from './message-parser';
 import { normalizeBrandName } from './brand-aliases';
 
 export class AIService {
@@ -58,10 +58,13 @@ export class AIService {
       let searchResults: SearchResultForContext[] = [];
       let ragContext = '';
 
+      // Extract description keywords for text search
+      const descriptionKeywords = extractDescriptionKeywords(request.userMessage);
+
       // If we have enough preferences, search database
       if (this.hasEnoughPreferencesForSearch(currentPreferences)) {
         logger.info(
-          { userId: request.userId, preferences: currentPreferences },
+          { userId: request.userId, preferences: currentPreferences, descriptionKeywords },
           'Searching database for RAG context'
         );
 
@@ -73,6 +76,7 @@ export class AIService {
           power: currentPreferences.power,
           kpp: currentPreferences.kpp,
           bodyType: currentPreferences.bodyType,
+          descriptionKeywords: descriptionKeywords.length > 0 ? descriptionKeywords : undefined,
           limit: 10, // Top 10 results for context (descriptions prioritized)
         });
 
@@ -478,6 +482,9 @@ export class AIService {
       context += `   КПП: ${car.kppText || 'н/д'}\n`;
       if (car.description) {
         context += `   Описание: ${car.description}\n`;
+      }
+      if (car.complectations && car.complectations.length > 0) {
+        context += `   Комплектации: ${car.complectations.join(', ')}\n`;
       }
       context += '\n';
     });

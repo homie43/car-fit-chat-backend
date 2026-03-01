@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMessageForPreferences, mergePreferences } from './message-parser';
+import { parseMessageForPreferences, mergePreferences, extractDescriptionKeywords } from './message-parser';
 import type { UserPreferences } from './ai.types';
 
 describe('parseMessageForPreferences', () => {
@@ -164,6 +164,63 @@ describe('parseMessageForPreferences', () => {
       expect(prefs.kpp).toBe('MT');
       expect(prefs.yearFrom).toBe(2018);
     });
+  });
+});
+
+describe('extractDescriptionKeywords', () => {
+  it('should extract content keywords from safety award query', () => {
+    const keywords = extractDescriptionKeywords(
+      'А что знаешь про Машину, которая В 1983 году получила награду за лучшую безопасность в своем классе?',
+    );
+    expect(keywords).toContain('награду');
+    expect(keywords).toContain('безопасность');
+    // Stop words should be filtered out
+    expect(keywords).not.toContain('которая');
+    expect(keywords).not.toContain('машину');
+    expect(keywords).not.toContain('знаешь');
+    expect(keywords).not.toContain('году');
+    expect(keywords).not.toContain('1983');
+  });
+
+  it('should filter out brand names', () => {
+    const keywords = extractDescriptionKeywords('Расскажи про тойоту с полным приводом');
+    expect(keywords).not.toContain('тойоту');
+    expect(keywords).not.toContain('тойота');
+    expect(keywords).toContain('полным');
+    expect(keywords).toContain('приводом');
+  });
+
+  it('should filter out body type keywords', () => {
+    const keywords = extractDescriptionKeywords('Ищу кроссовер с панорамной крышей');
+    expect(keywords).not.toContain('кроссовер');
+    expect(keywords).toContain('панорамной');
+    expect(keywords).toContain('крышей');
+  });
+
+  it('should return empty array for simple preference queries', () => {
+    const keywords = extractDescriptionKeywords('Хочу тойоту седан 2020');
+    expect(keywords).toHaveLength(0);
+  });
+
+  it('should return max 5 keywords', () => {
+    const keywords = extractDescriptionKeywords(
+      'надежный экономичный просторный комфортный динамичный безопасный мощный',
+    );
+    expect(keywords.length).toBeLessThanOrEqual(5);
+  });
+
+  it('should handle English keywords', () => {
+    const keywords = extractDescriptionKeywords('car with turbo engine and leather interior');
+    expect(keywords).toContain('turbo');
+    expect(keywords).toContain('engine');
+    expect(keywords).toContain('leather');
+    expect(keywords).toContain('interior');
+  });
+
+  it('should filter short words', () => {
+    const keywords = extractDescriptionKeywords('я хочу это авто за 2 млн');
+    // All words are either < 4 chars or stop words
+    expect(keywords).toHaveLength(0);
   });
 });
 

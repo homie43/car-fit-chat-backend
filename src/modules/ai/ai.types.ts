@@ -111,4 +111,5 @@ export interface SearchResultForContext {
   powerText: string | null;
   kppText: string | null;
   bodyType: string | null;
+  complectations?: string[];
 }

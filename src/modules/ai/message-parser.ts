@@ -189,6 +189,136 @@ export function parseMessageForPreferences(message: string): UserPreferences {
 }
 
 /**
+ * Russian stop words — common words that don't carry meaning for description search.
+ */
+const STOP_WORDS = new Set([
+  // Pronouns & particles
+  'этот', 'этой', 'этом', 'этих', 'этого', 'этому',
+  'свой', 'свою', 'своё', 'своя', 'своем', 'своей', 'своих', 'своим',
+  'который', 'которая', 'которое', 'которую', 'которых', 'которой', 'которого', 'которым',
+  'какой', 'какая', 'какое', 'какую', 'каких', 'какие',
+  'такой', 'такая', 'такое', 'такие', 'таких',
+  'весь', 'всех', 'всем', 'всего', 'всей',
+  'один', 'одна', 'одно', 'одной', 'одного',
+  'себя', 'себе', 'собой',
+  'него', 'неё', 'нему', 'ними',
+  // Verbs (common)
+  'быть', 'было', 'была', 'были', 'будет', 'будут',
+  'есть', 'нету', 'стал', 'стала', 'стали',
+  'может', 'могу', 'можно', 'можешь',
+  'знаешь', 'знаете', 'знаю',
+  'хочу', 'хочешь', 'хотел', 'хотела',
+  'нужен', 'нужна', 'нужно', 'нужны', 'надо',
+  'ищу', 'ищем', 'ищешь',
+  'подбери', 'подобрать', 'подберите',
+  'посоветуй', 'посоветуйте', 'расскажи', 'расскажите',
+  'покажи', 'покажите', 'скажи', 'скажите',
+  'получил', 'получила', 'получило', 'получили',
+  // Nouns (generic / automotive-context)
+  'машина', 'машину', 'машины', 'машине', 'машиной',
+  'автомобиль', 'автомобили', 'автомобиля', 'автомобилей', 'автомобилю',
+  'авто', 'тачка', 'тачку',
+  'марка', 'марку', 'марки',
+  'модель', 'модели', 'моделей',
+  'класс', 'класса', 'классе', 'классу',
+  'года', 'году', 'годов', 'годы',
+  // Adjectives (generic)
+  'лучший', 'лучшая', 'лучшее', 'лучшую', 'лучших', 'лучшие', 'лучшем',
+  'хороший', 'хорошая', 'хорошее', 'хороших', 'хорошие',
+  'самый', 'самая', 'самое', 'самую', 'самых', 'самые',
+  'новый', 'новая', 'новое', 'новую', 'новых', 'новые',
+  // Prepositions & conjunctions (4+ chars that pass length filter)
+  'если', 'либо', 'тоже', 'также', 'чтобы', 'потому', 'более', 'менее',
+  'между', 'через', 'после', 'перед', 'около',
+]);
+
+/**
+ * Extract keywords from user message for description text search.
+ * Removes known patterns (brands, body types, KPP, years, budgets)
+ * and stop words, returning content words that might match descriptions.
+ */
+export function extractDescriptionKeywords(message: string): string[] {
+  const lowerMessage = message.toLowerCase();
+
+  // Collect all known pattern stems to exclude (for Cyrillic declension matching)
+  const knownStems = new Set<string>();
+
+  // Brand aliases — store stems (drop last vowel for Cyrillic words)
+  for (const alias of BRAND_ALIASES.keys()) {
+    for (const w of alias.split(/\s+/)) {
+      knownStems.add(w);
+      // Also add stem without last vowel
+      if (w.length > 2 && CYRILLIC_VOWELS.includes(w[w.length - 1])) {
+        knownStems.add(w.slice(0, -1));
+      }
+    }
+  }
+
+  // Body type keywords
+  for (const keyword of BODY_TYPE_KEYWORDS.keys()) {
+    knownStems.add(keyword);
+    if (keyword.length > 2 && CYRILLIC_VOWELS.includes(keyword[keyword.length - 1])) {
+      knownStems.add(keyword.slice(0, -1));
+    }
+  }
+
+  // KPP keywords
+  for (const keyword of KPP_KEYWORDS.keys()) {
+    knownStems.add(keyword);
+    if (keyword.length > 2 && CYRILLIC_VOWELS.includes(keyword[keyword.length - 1])) {
+      knownStems.add(keyword.slice(0, -1));
+    }
+  }
+
+  /**
+   * Check if a word matches any known pattern (with stem matching for Cyrillic).
+   * "тойоту" matches "тойота" because stem "тойот" is in knownStems.
+   */
+  function isKnownWord(word: string): boolean {
+    if (knownStems.has(word)) return true;
+    // Try stem: drop trailing Cyrillic letters until we find a match
+    if (/[а-яё]/.test(word)) {
+      for (let i = word.length - 1; i >= Math.max(2, word.length - 3); i--) {
+        if (knownStems.has(word.slice(0, i))) return true;
+      }
+    }
+    return false;
+  }
+
+  // Split into words, clean punctuation
+  const words = lowerMessage
+    .replace(/[^а-яёa-z0-9\s]/gi, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const keywords: string[] = [];
+  const seen = new Set<string>();
+
+  for (const word of words) {
+    // Skip short words (< 4 chars) — filters most prepositions/particles
+    if (word.length < 4) continue;
+
+    // Skip numbers (years are parsed separately)
+    if (/^\d+$/.test(word)) continue;
+
+    // Skip known patterns (brand names, body types, KPP) with stem matching
+    if (isKnownWord(word)) continue;
+
+    // Skip stop words
+    if (STOP_WORDS.has(word)) continue;
+
+    // Skip duplicates
+    if (seen.has(word)) continue;
+    seen.add(word);
+
+    keywords.push(word);
+  }
+
+  // Return max 5 keywords
+  return keywords.slice(0, 5);
+}
+
+/**
  * Merge two preference objects. New values override old, but
  * undefined/null/empty in newPrefs does NOT clear old values.
  */

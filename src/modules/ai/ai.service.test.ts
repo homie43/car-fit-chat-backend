@@ -186,6 +186,47 @@ describe('AIService', () => {
       expect(context).toContain('2. Honda Accord');
     });
 
+    it('should format results with complectations', () => {
+      const results: SearchResultForContext[] = [
+        {
+          brand: 'Lada',
+          model: 'Vesta',
+          variant: '1.6 MT (106 л.с.)',
+          description: null,
+          yearFrom: 2015,
+          yearTo: null,
+          powerText: '106 л.с.',
+          kppText: 'MT',
+          bodyType: 'Седан',
+          complectations: ['Comfort', 'Luxe', 'Luxe Multimedia'],
+        },
+      ];
+      const context = svc().formatSearchResultsForContext(results);
+
+      expect(context).toContain('Lada Vesta');
+      expect(context).toContain('Комплектации: Comfort, Luxe, Luxe Multimedia');
+    });
+
+    it('should not show complectations line when empty', () => {
+      const results: SearchResultForContext[] = [
+        {
+          brand: 'BMW',
+          model: '3 Series',
+          variant: '320i AT',
+          description: null,
+          yearFrom: 2019,
+          yearTo: 2023,
+          powerText: '184 л.с.',
+          kppText: 'AT',
+          bodyType: 'sedan',
+          complectations: [],
+        },
+      ];
+      const context = svc().formatSearchResultsForContext(results);
+
+      expect(context).not.toContain('Комплектации');
+    });
+
     it('should handle missing year and body type', () => {
       const results: SearchResultForContext[] = [
         {
