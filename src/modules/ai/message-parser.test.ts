@@ -137,6 +137,53 @@ describe('parseMessageForPreferences', () => {
     });
   });
 
+  describe('false positive prevention', () => {
+    it('should NOT extract bodyType from "Бредли Купер"', () => {
+      const prefs = parseMessageForPreferences(
+        'А, на такой машине кажется ездит Бредли Купер',
+      );
+      expect(prefs.bodyType).toBeUndefined();
+    });
+
+    it('should NOT extract bodyType from "купить"', () => {
+      expect(parseMessageForPreferences('Хочу купить машину').bodyType).toBeUndefined();
+    });
+
+    it('should NOT extract marka from "Оксфорд"', () => {
+      expect(parseMessageForPreferences('Я учился в Оксфорде').marka).toBeUndefined();
+    });
+
+    it('should NOT extract marka "Ford" from "Oxford"', () => {
+      expect(parseMessageForPreferences('I studied at Oxford University').marka).toBeUndefined();
+    });
+
+    it('should NOT extract marka "MINI" from "Минимум"', () => {
+      expect(parseMessageForPreferences('Минимум расходов').marka).toBeUndefined();
+    });
+  });
+
+  describe('declension support', () => {
+    it('should match declined brand names', () => {
+      expect(parseMessageForPreferences('Доволен фордом').marka).toBe('Ford');
+      expect(parseMessageForPreferences('Расскажи о мазде').marka).toBe('Mazda');
+    });
+
+    it('should match declined body types', () => {
+      expect(parseMessageForPreferences('В седане удобно').bodyType).toBe('Седан');
+      expect(parseMessageForPreferences('Кроссовером доволен').bodyType).toBe('Внедорожник');
+    });
+
+    it('should match купе exactly (indeclinable)', () => {
+      expect(parseMessageForPreferences('Хочу купе').bodyType).toBe('Купе');
+    });
+
+    it('should match declined KPP keywords', () => {
+      expect(parseMessageForPreferences('хочу на автомате').kpp).toBe('AT');
+      expect(parseMessageForPreferences('с вариатором').kpp).toBe('CVT');
+      expect(parseMessageForPreferences('на роботе').kpp).toBe('Robot');
+    });
+  });
+
   describe('combined extraction', () => {
     it('should extract multiple preferences from one message', () => {
       const prefs = parseMessageForPreferences(
