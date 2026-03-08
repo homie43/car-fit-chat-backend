@@ -32,6 +32,84 @@ describe('parseMessageForPreferences', () => {
       expect(parseMessageForPreferences('хочу машину').marka).toBeUndefined();
       expect(parseMessageForPreferences('посоветуй что-нибудь').marka).toBeUndefined();
     });
+
+    it('should detect niche Latin brands (AC, Abarth, AM General)', () => {
+      expect(parseMessageForPreferences('Расскажи про AC Cobra').marka).toBe('AC');
+      expect(parseMessageForPreferences('Хочу Abarth 500').marka).toBe('Abarth');
+      expect(parseMessageForPreferences('AM General Hummer').marka).toBe('AM General');
+    });
+
+    it('should detect Abarth from Cyrillic alias', () => {
+      expect(parseMessageForPreferences('абарт — итальянский спорт').marka).toBe('Abarth');
+    });
+  });
+
+  describe('model detection', () => {
+    it('should detect unambiguous model names in Latin', () => {
+      expect(parseMessageForPreferences('Ищу Hyundai Tucson').model).toBe('TUCSON');
+      expect(parseMessageForPreferences('Toyota Camry 2020').model).toBe('CAMRY');
+      expect(parseMessageForPreferences('Volkswagen Tiguan').model).toBe('TIGUAN');
+    });
+
+    it('should detect unambiguous model names in Cyrillic', () => {
+      expect(parseMessageForPreferences('Хочу тойоту камри').model).toBe('CAMRY');
+      expect(parseMessageForPreferences('Нравится хендай солярис').model).toBe('SOLARIS');
+      expect(parseMessageForPreferences('Посоветуй ниссан кашкай').model).toBe('QASHQAI');
+    });
+
+    it('should detect BMW alphanumeric models', () => {
+      expect(parseMessageForPreferences('BMW X5 2020').model).toBe('X5');
+      expect(parseMessageForPreferences('бмв x3').model).toBe('X3');
+    });
+
+    it('should detect Audi alphanumeric models', () => {
+      expect(parseMessageForPreferences('Audi Q7 кроссовер').model).toBe('Q7');
+      expect(parseMessageForPreferences('ауди a4 седан').model).toBe('A4');
+    });
+
+    it('should detect contextual models only with brand present', () => {
+      expect(parseMessageForPreferences('Volkswagen Golf').model).toBe('GOLF');
+      expect(parseMessageForPreferences('Ford Focus 2019').model).toBe('FOCUS');
+      expect(parseMessageForPreferences('Kia Rio на автомате').model).toBe('RIO');
+    });
+
+    it('should NOT detect contextual models without brand', () => {
+      expect(parseMessageForPreferences('I like golf').model).toBeUndefined();
+      expect(parseMessageForPreferences('Focus on driving').model).toBeUndefined();
+      expect(parseMessageForPreferences('Rio de Janeiro').model).toBeUndefined();
+    });
+
+    it('should detect multi-word model names', () => {
+      expect(parseMessageForPreferences('Toyota Land Cruiser').model).toBe('LAND_CRUISER');
+      expect(parseMessageForPreferences('Hyundai Santa Fe 2020').model).toBe('SANTA_FE');
+      expect(parseMessageForPreferences('тойота ленд крузер').model).toBe('LAND_CRUISER');
+    });
+
+    it('should detect AC Cobra model', () => {
+      expect(parseMessageForPreferences('AC Cobra').model).toBe('COBRA');
+    });
+
+    it('should extract both brand and model together', () => {
+      const prefs = parseMessageForPreferences('Ищу Hyundai Tucson 2020 на автомате');
+      expect(prefs.marka).toBe('Hyundai');
+      expect(prefs.model).toBe('TUCSON');
+      expect(prefs.yearFrom).toBe(2020);
+      expect(prefs.kpp).toBe('AT');
+    });
+
+    it('should NOT set model when no model name found', () => {
+      expect(parseMessageForPreferences('Хочу тойоту').model).toBeUndefined();
+      expect(parseMessageForPreferences('Ищу кроссовер').model).toBeUndefined();
+    });
+
+    it('should detect Mercedes class models', () => {
+      expect(parseMessageForPreferences('Mercedes E class').model).toBe('E-CLASS');
+      expect(parseMessageForPreferences('мерседес GLE').model).toBe('GLE');
+    });
+
+    it('should detect Volvo XC models', () => {
+      expect(parseMessageForPreferences('Volvo XC90').model).toBe('XC90');
+    });
   });
 
   describe('body type detection', () => {
@@ -196,6 +274,17 @@ describe('parseMessageForPreferences', () => {
       expect(prefs.budget).toBe(2_000_000);
     });
 
+    it('should extract brand + model + body type + year + kpp', () => {
+      const prefs = parseMessageForPreferences(
+        'Hyundai Tucson кроссовер 2020 на автомате',
+      );
+      expect(prefs.marka).toBe('Hyundai');
+      expect(prefs.model).toBe('TUCSON');
+      expect(prefs.bodyType).toBe('Внедорожник');
+      expect(prefs.yearFrom).toBe(2020);
+      expect(prefs.kpp).toBe('AT');
+    });
+
     it('should extract brand + body type from simple request', () => {
       const prefs = parseMessageForPreferences('Ищу кроссовер Hyundai');
       expect(prefs.marka).toBe('Hyundai');
@@ -235,6 +324,14 @@ describe('extractDescriptionKeywords', () => {
     expect(keywords).not.toContain('тойота');
     expect(keywords).toContain('полным');
     expect(keywords).toContain('приводом');
+  });
+
+  it('should filter out model names from description keywords', () => {
+    const keywords = extractDescriptionKeywords('Расскажи про Toyota Camry с кожаным салоном');
+    expect(keywords).not.toContain('camry');
+    expect(keywords).not.toContain('toyota');
+    expect(keywords).toContain('кожаным');
+    expect(keywords).toContain('салоном');
   });
 
   it('should filter out body type keywords', () => {

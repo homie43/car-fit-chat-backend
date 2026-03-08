@@ -89,6 +89,9 @@ export const BRAND_ALIASES: Map<string, string> = new Map([
   // Swedish
   ['вольво', 'Volvo'],
   ['сааб', 'Saab'],
+
+  // Niche brands (have descriptions in DB)
+  ['абарт', 'Abarth'],
 ]);
 
 /**

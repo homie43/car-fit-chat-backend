@@ -57,4 +57,8 @@ describe('normalizeBrandName', () => {
     expect(normalizeBrandName('ваз')).toBe('LADA');
     expect(normalizeBrandName('уаз')).toBe('UAZ');
   });
+
+  it('should handle Abarth Cyrillic alias', () => {
+    expect(normalizeBrandName('абарт')).toBe('Abarth');
+  });
 });

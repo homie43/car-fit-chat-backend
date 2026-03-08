@@ -98,14 +98,21 @@ async function generateDescription(car: CarVariant): Promise<string> {
 
 /**
  * Process batch of cars
+ * @param priorityBrands — if set, only process these brands
  */
-async function processBatch(batchSize: number): Promise<void> {
+async function processBatch(batchSize: number, priorityBrands?: string[]): Promise<void> {
   console.log('\n🔍 Fetching cars without descriptions...');
+  if (priorityBrands) {
+    console.log(`   Filtering by brands: ${priorityBrands.join(', ')}`);
+  }
 
   // Get cars without descriptions
   const cars = await prisma.carVariant.findMany({
     where: {
       description: null,
+      ...(priorityBrands
+        ? { model: { brand: { name: { in: priorityBrands } } } }
+        : {}),
     },
     take: batchSize,
     orderBy: [
@@ -217,8 +224,9 @@ async function main() {
   console.log(`Model: ${MODEL}`);
   console.log(`Ollama URL: ${OLLAMA_URL}\n`);
 
-  // Parse batch size from command line args
+  // Parse command line args
   const args = process.argv.slice(2);
+
   const batchIndex = args.indexOf('--batch');
   const batchSize = batchIndex >= 0 && args[batchIndex + 1]
     ? parseInt(args[batchIndex + 1], 10)
@@ -227,6 +235,16 @@ async function main() {
   if (isNaN(batchSize) || batchSize <= 0) {
     console.error('❌ Invalid batch size');
     process.exit(1);
+  }
+
+  // Parse --brands flag (comma-separated list)
+  const brandsIndex = args.indexOf('--brands');
+  const priorityBrands = brandsIndex >= 0 && args[brandsIndex + 1]
+    ? args[brandsIndex + 1].split(',').map((b) => b.trim())
+    : undefined;
+
+  if (priorityBrands) {
+    console.log(`Priority brands: ${priorityBrands.join(', ')}`);
   }
 
   // Check Ollama connection
@@ -244,7 +262,7 @@ async function main() {
   }
 
   try {
-    await processBatch(batchSize);
+    await processBatch(batchSize, priorityBrands);
 
     // Check if there are more cars to process
     const remaining = await prisma.carVariant.count({

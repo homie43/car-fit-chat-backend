@@ -139,11 +139,158 @@ const KPP_KEYWORDS: Map<string, string> = new Map([
 ]);
 
 /**
+ * Model name mappings: keyword (lowercase) -> DB model name (used in `contains` search).
+ * UNAMBIGUOUS: always match (not common words in any language).
+ * CONTEXTUAL: match only when a brand was already detected in the same message.
+ */
+const UNAMBIGUOUS_MODELS: Map<string, string> = new Map([
+  // Toyota
+  ['camry', 'CAMRY'], ['камри', 'CAMRY'],
+  ['corolla', 'COROLLA'], ['королла', 'COROLLA'],
+  ['rav4', 'RAV4'], ['рав4', 'RAV4'],
+  ['prado', 'PRADO'], ['прадо', 'PRADO'],
+  ['highlander', 'HIGHLANDER'], ['хайлендер', 'HIGHLANDER'],
+  ['avalon', 'AVALON'], ['авалон', 'AVALON'],
+  ['supra', 'SUPRA'], ['супра', 'SUPRA'],
+  ['yaris', 'YARIS'], ['ярис', 'YARIS'],
+  // Hyundai
+  ['tucson', 'TUCSON'], ['тусон', 'TUCSON'], ['туссан', 'TUCSON'],
+  ['solaris', 'SOLARIS'], ['солярис', 'SOLARIS'],
+  ['creta', 'CRETA'], ['крета', 'CRETA'],
+  ['elantra', 'ELANTRA'], ['элантра', 'ELANTRA'],
+  ['sonata', 'SONATA'], ['соната', 'SONATA'],
+  ['palisade', 'PALISADE'], ['палисад', 'PALISADE'],
+  // Kia
+  ['sportage', 'SPORTAGE'], ['спортейдж', 'SPORTAGE'],
+  ['sorento', 'SORENTO'], ['соренто', 'SORENTO'],
+  ['cerato', 'CERATO'], ['церато', 'CERATO'],
+  ['seltos', 'SELTOS'], ['селтос', 'SELTOS'],
+  ['stinger', 'STINGER'], ['стингер', 'STINGER'],
+  ['mohave', 'MOHAVE'], ['мохав', 'MOHAVE'],
+  // BMW
+  ['x1', 'X1'], ['x3', 'X3'], ['x5', 'X5'], ['x6', 'X6'], ['x7', 'X7'],
+  // Volkswagen
+  ['tiguan', 'TIGUAN'], ['тигуан', 'TIGUAN'],
+  ['passat', 'PASSAT'], ['пассат', 'PASSAT'],
+  ['touareg', 'TOUAREG'], ['туарег', 'TOUAREG'],
+  ['jetta', 'JETTA'], ['джетта', 'JETTA'],
+  // Mazda
+  ['cx5', 'CX-5'], ['cx9', 'CX-9'], ['cx3', 'CX-3'],
+  // Honda
+  ['civic', 'CIVIC'], ['цивик', 'CIVIC'],
+  ['accord', 'ACCORD'], ['аккорд', 'ACCORD'],
+  ['crv', 'CR-V'],
+  // Nissan
+  ['qashqai', 'QASHQAI'], ['кашкай', 'QASHQAI'],
+  ['xtrail', 'X-TRAIL'],
+  ['almera', 'ALMERA'], ['альмера', 'ALMERA'],
+  ['pathfinder', 'PATHFINDER'], ['патфайндер', 'PATHFINDER'],
+  ['murano', 'MURANO'], ['мурано', 'MURANO'],
+  // Mercedes
+  ['gle', 'GLE'], ['glc', 'GLC'], ['gls', 'GLS'],
+  ['gla', 'GLA'], ['glb', 'GLB'],
+  // Audi
+  ['a3', 'A3'], ['a4', 'A4'], ['a6', 'A6'], ['a8', 'A8'],
+  ['q3', 'Q3'], ['q5', 'Q5'], ['q7', 'Q7'], ['q8', 'Q8'],
+  // Ford
+  ['mustang', 'MUSTANG'], ['мустанг', 'MUSTANG'],
+  ['explorer', 'EXPLORER'], ['эксплорер', 'EXPLORER'],
+  // Subaru
+  ['forester', 'FORESTER'], ['форестер', 'FORESTER'],
+  ['outback', 'OUTBACK'], ['аутбек', 'OUTBACK'],
+  ['impreza', 'IMPREZA'], ['импреза', 'IMPREZA'],
+  // Chevrolet
+  ['cruze', 'CRUZE'], ['круз', 'CRUZE'],
+  ['tahoe', 'TAHOE'], ['тахо', 'TAHOE'],
+  // Volvo
+  ['xc90', 'XC90'], ['xc60', 'XC60'], ['xc40', 'XC40'],
+  // Renault
+  ['duster', 'DUSTER'], ['дастер', 'DUSTER'],
+  ['kaptur', 'KAPTUR'], ['каптюр', 'KAPTUR'],
+  ['arkana', 'ARKANA'], ['аркана', 'ARKANA'],
+  // Lexus
+  ['rx', 'RX'],
+  // Porsche
+  ['cayenne', 'CAYENNE'], ['кайен', 'CAYENNE'],
+  ['macan', 'MACAN'], ['макан', 'MACAN'],
+  ['panamera', 'PANAMERA'], ['панамера', 'PANAMERA'],
+  // Mitsubishi
+  ['outlander', 'OUTLANDER'], ['аутлендер', 'OUTLANDER'],
+  ['pajero', 'PAJERO'], ['паджеро', 'PAJERO'],
+  // Skoda
+  ['octavia', 'OCTAVIA'], ['октавия', 'OCTAVIA'],
+  ['kodiaq', 'KODIAQ'], ['кодиак', 'KODIAQ'],
+  ['rapid', 'RAPID'], ['рапид', 'RAPID'],
+  // AC (niche, has descriptions)
+  ['cobra', 'COBRA'],
+]);
+
+/**
+ * Contextual models: match ONLY when a brand was already detected.
+ * These are common English/Russian words that happen to be car model names.
+ */
+const CONTEXTUAL_MODELS: Map<string, string> = new Map([
+  ['golf', 'GOLF'],       // VW Golf vs sport
+  ['focus', 'FOCUS'],     // Ford Focus vs English word
+  ['eclipse', 'ECLIPSE'], // Mitsubishi Eclipse
+  ['accent', 'ACCENT'],   // Hyundai Accent
+  ['rio', 'RIO'],         // Kia Rio vs city
+  ['jazz', 'JAZZ'],       // Honda Jazz vs music
+  ['swift', 'SWIFT'],     // Suzuki Swift
+  ['spark', 'SPARK'],     // Chevrolet Spark
+  ['cobalt', 'COBALT'],   // Chevrolet Cobalt
+  ['polo', 'POLO'],       // VW Polo
+  ['vesta', 'VESTA'], ['веста', 'VESTA'],
+  ['granta', 'GRANTA'], ['гранта', 'GRANTA'],
+  ['niva', 'NIVA'], ['нива', 'NIVA'],
+  ['logan', 'LOGAN'], ['логан', 'LOGAN'],
+  ['clio', 'CLIO'],
+  ['fiesta', 'FIESTA'],
+  ['ranger', 'RANGER'],
+  ['pilot', 'PILOT'],
+  ['legacy', 'LEGACY'],
+]);
+
+/**
+ * Multi-word model names (matched as consecutive tokens).
+ * Format: [tokens[], DB_MODEL_NAME]
+ */
+/**
+ * Multi-word model names (matched as consecutive tokens).
+ * DB stores underscores: LAND_CRUISER, SANTA_FE, GRAND_CHEROKEE.
+ * Use underscores in output to match DB `contains` search.
+ */
+const MULTI_WORD_MODELS: Array<[string[], string]> = [
+  // Toyota
+  [['land', 'cruiser'], 'LAND_CRUISER'],
+  [['ленд', 'крузер'], 'LAND_CRUISER'],
+  [['ланд', 'крузер'], 'LAND_CRUISER'],
+  // Hyundai
+  [['santa', 'fe'], 'SANTA_FE'],
+  [['санта', 'фе'], 'SANTA_FE'],
+  // Jeep
+  [['grand', 'cherokee'], 'GRAND_CHEROKEE'],
+  [['гранд', 'чероки'], 'GRAND_CHEROKEE'],
+  // Mercedes
+  [['e', 'class'], 'E-CLASS'],
+  [['c', 'class'], 'C-CLASS'],
+  [['s', 'class'], 'S-CLASS'],
+  // Nissan
+  [['x', 'trail'], 'X-TRAIL'],
+  // Mazda
+  [['cx', '5'], 'CX-5'],
+  [['cx', '9'], 'CX-9'],
+  [['cx', '3'], 'CX-3'],
+  // Honda
+  [['cr', 'v'], 'CR-V'],
+];
+
+/**
  * Latin brand names for direct matching.
  * Multi-word brands listed first for priority matching.
  */
 const LATIN_BRANDS = [
-  'Land Rover', 'Alfa Romeo', 'Aston Martin', 'Rolls-Royce', 'Great Wall',
+  'AM General', 'Land Rover', 'Alfa Romeo', 'Aston Martin', 'Rolls-Royce', 'Great Wall',
   'Mercedes-Benz', 'SsangYong',
   'Toyota', 'Honda', 'Nissan', 'BMW', 'Mercedes', 'Audi', 'Volkswagen',
   'Hyundai', 'Kia', 'Ford', 'Chevrolet', 'Mazda', 'Subaru', 'Lexus',
@@ -156,6 +303,7 @@ const LATIN_BRANDS = [
   'Opel', 'Citroen', 'Infiniti', 'Acura',
   'AMC', 'Pontiac', 'Oldsmobile', 'Plymouth', 'Daihatsu', 'Isuzu',
   'Seat', 'Dacia', 'Lancia', 'Rover', 'MG',
+  'AC', 'Abarth',
 ];
 
 // ============================================
@@ -178,6 +326,11 @@ const kppWordForms = new Map<string, string>();
 // Latin brand lookups
 const singleWordLatinBrandLookup = new Map<string, string>();
 const multiWordLatinBrandPatterns: MultiWordPattern[] = [];
+
+// Model name lookups
+const unambiguousModelLookup = new Map<string, string>();
+const contextualModelLookup = new Map<string, string>();
+const multiWordModelPatterns: MultiWordPattern[] = [];
 
 // All known word forms — for extractDescriptionKeywords filtering
 const allKnownWordForms = new Set<string>();
@@ -245,6 +398,25 @@ function buildLookups() {
       });
       multiWordLatinBrandPatterns.push({ wordSets, value: brand });
     }
+  }
+
+  // --- Model name lookups ---
+  for (const [keyword, model] of UNAMBIGUOUS_MODELS.entries()) {
+    unambiguousModelLookup.set(keyword, model);
+    allKnownWordForms.add(keyword);
+  }
+  for (const [keyword, model] of CONTEXTUAL_MODELS.entries()) {
+    contextualModelLookup.set(keyword, model);
+    allKnownWordForms.add(keyword);
+  }
+  // Multi-word model patterns (sorted longest first)
+  const sortedMWModels = [...MULTI_WORD_MODELS].sort((a, b) => b[0].length - a[0].length);
+  for (const [words, model] of sortedMWModels) {
+    const wordSets = words.map((w) => {
+      allKnownWordForms.add(w);
+      return new Set([w]);
+    });
+    multiWordModelPatterns.push({ wordSets, value: model });
   }
 }
 
@@ -323,6 +495,37 @@ export function parseMessageForPreferences(message: string): UserPreferences {
       const brand = singleWordLatinBrandLookup.get(token);
       if (brand) {
         preferences.marka = brand;
+        break;
+      }
+    }
+  }
+
+  // 1.5 Model name detection
+  // Multi-word models first (longest match priority)
+  for (const pattern of multiWordModelPatterns) {
+    if (matchMultiWordPattern(tokens, pattern)) {
+      preferences.model = pattern.value;
+      break;
+    }
+  }
+
+  // Unambiguous single-word models (always match)
+  if (!preferences.model) {
+    for (const token of tokens) {
+      const model = unambiguousModelLookup.get(token);
+      if (model) {
+        preferences.model = model;
+        break;
+      }
+    }
+  }
+
+  // Contextual models (match only if brand was detected)
+  if (!preferences.model && preferences.marka) {
+    for (const token of tokens) {
+      const model = contextualModelLookup.get(token);
+      if (model) {
+        preferences.model = model;
         break;
       }
     }
