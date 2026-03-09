@@ -109,6 +109,31 @@ export class DialogsService {
 
     logger.info({ dialogId }, 'Dialog deleted');
   }
+
+  /**
+   * Reset dialog: delete old dialog + messages, clear user preferences, create new dialog
+   */
+  async resetDialog(userId: string) {
+    await prisma.dialog.deleteMany({ where: { userId } });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { preferences: {} },
+    });
+
+    const dialog = await prisma.dialog.create({
+      data: { userId },
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    logger.info({ userId, dialogId: dialog.id }, 'Dialog reset, preferences cleared');
+    return dialog;
+  }
 }
 
 // Export singleton instance

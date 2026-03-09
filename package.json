@@ -15,7 +15,9 @@
     "seed": "tsx src/scripts/seed.ts",
     "import:xml": "tsx src/scripts/import-xml.ts",
     "generate:descriptions": "tsx src/scripts/generate-descriptions-ollama.ts",
-    "test": "vitest"
+    "generate:descriptions:template": "tsx src/scripts/generate-descriptions-template.ts",
+    "test": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "keywords": [
     "car",

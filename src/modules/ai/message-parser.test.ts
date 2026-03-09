@@ -377,6 +377,57 @@ describe('mergePreferences', () => {
     expect(merged.marka).toBe('BMW');
     expect(merged.kpp).toBe('AT');
     expect(merged.yearFrom).toBe(2020);
+    // brand changed → model, bodyType, power, color cleared (were undefined anyway)
+  });
+
+  it('should reset dependent fields when brand changes', () => {
+    const old: UserPreferences = { marka: 'Toyota', model: 'Camry', bodyType: 'sedan', power: '500+', color: 'белый', kpp: 'AT', yearFrom: 2020, budget: 2000000 };
+    const newer: UserPreferences = { marka: 'Hyundai' };
+    const merged = mergePreferences(old, newer);
+
+    expect(merged.marka).toBe('Hyundai');
+    // brand-dependent fields cleared
+    expect(merged.model).toBeUndefined();
+    expect(merged.bodyType).toBeUndefined();
+    expect(merged.power).toBeUndefined();
+    expect(merged.color).toBeUndefined();
+    // brand-independent fields preserved
+    expect(merged.kpp).toBe('AT');
+    expect(merged.yearFrom).toBe(2020);
+    expect(merged.budget).toBe(2000000);
+  });
+
+  it('should reset dependent fields when model changes', () => {
+    const old: UserPreferences = { marka: 'Toyota', model: 'Camry', bodyType: 'sedan', power: '200' };
+    const newer: UserPreferences = { model: 'RAV4' };
+    const merged = mergePreferences(old, newer);
+
+    expect(merged.marka).toBe('Toyota');
+    expect(merged.model).toBe('RAV4');
+    // model-dependent fields cleared
+    expect(merged.bodyType).toBeUndefined();
+    expect(merged.power).toBeUndefined();
+  });
+
+  it('should NOT reset fields when same brand is mentioned', () => {
+    const old: UserPreferences = { marka: 'Toyota', bodyType: 'sedan', kpp: 'AT' };
+    const newer: UserPreferences = { marka: 'Toyota', yearFrom: 2022 };
+    const merged = mergePreferences(old, newer);
+
+    expect(merged.marka).toBe('Toyota');
+    expect(merged.bodyType).toBe('sedan');
+    expect(merged.kpp).toBe('AT');
+    expect(merged.yearFrom).toBe(2022);
+  });
+
+  it('should NOT reset fields when no brand in new prefs', () => {
+    const old: UserPreferences = { marka: 'Toyota', bodyType: 'sedan' };
+    const newer: UserPreferences = { kpp: 'AT' };
+    const merged = mergePreferences(old, newer);
+
+    expect(merged.marka).toBe('Toyota');
+    expect(merged.bodyType).toBe('sedan');
+    expect(merged.kpp).toBe('AT');
   });
 
   it('should not clear old values with undefined new values', () => {

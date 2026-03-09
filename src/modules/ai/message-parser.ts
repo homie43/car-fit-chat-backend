@@ -680,12 +680,30 @@ export function extractDescriptionKeywords(message: string): string[] {
 /**
  * Merge two preference objects. New values override old, but
  * undefined/null/empty in newPrefs does NOT clear old values.
+ *
+ * Smart reset: when brand changes, dependent fields (model, bodyType, power, color)
+ * are cleared. When model changes, bodyType and power are cleared.
+ * This prevents stale filters from previous searches poisoning new results.
  */
 export function mergePreferences(
   oldPrefs: UserPreferences,
   newPrefs: UserPreferences,
 ): UserPreferences {
   const merged: UserPreferences = { ...oldPrefs };
+
+  // If brand changed — reset brand-dependent fields
+  if (newPrefs.marka && oldPrefs.marka && newPrefs.marka !== oldPrefs.marka) {
+    delete merged.model;
+    delete merged.bodyType;
+    delete merged.power;
+    delete merged.color;
+  }
+
+  // If model changed — reset model-dependent fields
+  if (newPrefs.model && oldPrefs.model && newPrefs.model !== oldPrefs.model) {
+    delete merged.bodyType;
+    delete merged.power;
+  }
 
   for (const key of Object.keys(newPrefs) as Array<keyof UserPreferences>) {
     const newValue = newPrefs[key];

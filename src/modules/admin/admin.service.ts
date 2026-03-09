@@ -189,11 +189,25 @@ export class AdminService {
    */
   async deleteDialog(dialogId: string): Promise<boolean> {
     try {
+      // Find userId before deleting to clear their preferences
+      const dialog = await prisma.dialog.findUnique({
+        where: { id: dialogId },
+        select: { userId: true },
+      });
+
       await prisma.dialog.delete({
         where: { id: dialogId },
       });
 
-      logger.info({ dialogId }, 'Dialog deleted by admin');
+      // Clear user preferences so stale filters don't affect new dialogs
+      if (dialog?.userId) {
+        await prisma.user.update({
+          where: { id: dialog.userId },
+          data: { preferences: {} },
+        });
+      }
+
+      logger.info({ dialogId }, 'Dialog deleted by admin, preferences cleared');
       return true;
     } catch (error) {
       logger.error({ error, dialogId }, 'Failed to delete dialog');

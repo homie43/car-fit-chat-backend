@@ -5,6 +5,7 @@ import {
   ChatAssistantDeltaPayload,
   ChatAssistantDonePayload,
   ChatErrorPayload,
+  ChatNewDialogResultPayload,
   SocketData,
 } from './socket.types';
 import { logger } from '@/shared/utils/logger';
@@ -24,6 +25,22 @@ export const registerSocketHandlers = (socket: Socket) => {
   // Handle user message
   socket.on('chat:user_message', async (payload: ChatUserMessagePayload) => {
     await handleUserMessage(socket, userId, payload);
+  });
+
+  // Handle new dialog (reset)
+  socket.on('chat:new_dialog', async () => {
+    try {
+      const dialog = await dialogsService.resetDialog(userId);
+      const result: ChatNewDialogResultPayload = { dialogId: dialog.id };
+      socket.emit('chat:new_dialog_result', result);
+      logger.info({ userId, dialogId: dialog.id }, 'New dialog created via socket');
+    } catch (error) {
+      logger.error({ error, userId }, 'Error creating new dialog');
+      socket.emit('chat:error', {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to create new dialog',
+      });
+    }
   });
 
   // Handle disconnect

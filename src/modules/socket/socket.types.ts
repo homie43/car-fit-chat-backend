@@ -34,6 +34,10 @@ export interface ChatErrorPayload {
   message: string;
 }
 
+export interface ChatNewDialogResultPayload {
+  dialogId: string;
+}
+
 // ============================================
 // SOCKET DATA (attached to socket.data)
 // ============================================
