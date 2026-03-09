@@ -181,10 +181,16 @@ export class AIService {
 
       // Process streaming response
       let fullResponse = '';
-      let streamBuffer = ''; // Buffer for filtering [PREFERENCES] block and moderation
-      let outputBuffer = ''; // Buffer to check for rejection BEFORE streaming
+      let streamBuffer = ''; // Buffer for filtering [PREFERENCES] block
+      let outputBuffer = ''; // Buffer to check for rejection at start of response
       let insidePreferencesBlock = false;
       let rejectionDetected = false; // Flag for DeepSeek content moderation rejection
+      let initialCheckDone = false; // Two-phase streaming: buffer first 50 chars, then stream freely
+
+      // Phase 1: Buffer first chars to detect rejection phrases at response start
+      // Phase 2: Stream with minimal buffer (20 chars for [PREFERENCES] tag detection)
+      const INITIAL_REJECTION_CHECK_SIZE = 50;
+      const PREFERENCES_TAG_BUFFER = 20; // "[PREFERENCES]" = 13 chars
       const body = response.body;
 
       if (!body) {
@@ -257,15 +263,24 @@ export class AIService {
                   streamBuffer = '';
                   insidePreferencesBlock = false;
                 } else if (!insidePreferencesBlock) {
-                  // Buffer at least 500 chars before streaming to catch rejection early
-                  // DeepSeek often adds rejection message at the end, so we need larger buffer
-                  const REJECTION_BUFFER_SIZE = 500;
-                  const safeLength = Math.max(0, outputBuffer.length - REJECTION_BUFFER_SIZE);
-                  if (safeLength > 0) {
-                    const safeContent = outputBuffer.substring(0, safeLength);
-                    yield safeContent;
-                    outputBuffer = outputBuffer.substring(safeLength);
-                    streamBuffer = streamBuffer.substring(safeLength);
+                  if (!initialCheckDone) {
+                    // Phase 1: buffer first chars to detect rejection at start
+                    if (outputBuffer.length >= INITIAL_REJECTION_CHECK_SIZE) {
+                      initialCheckDone = true;
+                      // Flush accumulated buffer with minimal tag buffer
+                      const safeLength = Math.max(0, streamBuffer.length - PREFERENCES_TAG_BUFFER);
+                      if (safeLength > 0) {
+                        yield streamBuffer.substring(0, safeLength);
+                        streamBuffer = streamBuffer.substring(safeLength);
+                      }
+                    }
+                  } else {
+                    // Phase 2: stream immediately, only keep small buffer for [PREFERENCES] tag
+                    const safeLength = Math.max(0, streamBuffer.length - PREFERENCES_TAG_BUFFER);
+                    if (safeLength > 0) {
+                      yield streamBuffer.substring(0, safeLength);
+                      streamBuffer = streamBuffer.substring(safeLength);
+                    }
                   }
                 }
               }
